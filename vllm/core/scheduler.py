@@ -4,7 +4,8 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import (TYPE_CHECKING, Deque, Dict, Iterable, List, Optional, Set,
+                    Tuple, Union)
 
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
@@ -14,6 +15,9 @@ from vllm.lora.request import LoRARequest
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceStatus)
+
+if TYPE_CHECKING:
+    import torch
 
 logger = init_logger(__name__)
 
@@ -119,7 +123,8 @@ class SchedulerOutputs:
     # Total number of batched tokens.
     num_batched_tokens: int
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: List[Tuple[int, int]]
+    blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
+                                                         List[int]]]]
     # Blocks to swap out. List of GPU -> CPU block number.
     blocks_to_swap_out: List[Tuple[int, int]]
     # Blocks to copy. Source to dest block.
@@ -218,7 +223,8 @@ class SchedulerSwappedInOutputs:
     # phase. I.e., it means the prefill has been chunked.
     prefill_seq_groups: List[SequenceGroup]
     # The blocks to swap in.
-    blocks_to_swap_in: List[Tuple[int, int]]
+    blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
+                                                         List[int]]]]
     # The blocks to copy.
     blocks_to_copy: List[Tuple[int, int]]
     # The number of slots for lookahead decoding.
@@ -547,7 +553,8 @@ class Scheduler:
             SchedulerSwappedInOutputs.
         """
         # Blocks that need to be swapped or copied before model execution.
-        blocks_to_swap_in: List[Tuple[int, int]] = []
+        blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
+                                                             List[int]]]] = []
         blocks_to_copy: List[Tuple[int, int]] = []
         decode_seq_groups: List[ScheduledSequenceGroup] = []
         prefill_seq_groups: List[ScheduledSequenceGroup] = []
@@ -1164,9 +1171,12 @@ class Scheduler:
     def _swap_in(
         self,
         seq_group: SequenceGroup,
-        blocks_to_swap_in: List[Tuple[int, int]],
+        blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
+                                                             List[int]]]],
     ) -> None:
         mapping = self.block_manager.swap_in(seq_group)
+        if isinstance(mapping, tuple):
+            mapping = [mapping]
         blocks_to_swap_in.extend(mapping)
         for seq in seq_group.get_seqs(status=SequenceStatus.SWAPPED):
             seq.status = SequenceStatus.RUNNING
