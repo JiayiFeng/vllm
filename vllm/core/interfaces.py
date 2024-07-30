@@ -1,8 +1,8 @@
 import enum
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 from typing import Sequence as GenericSequence
-from typing import Tuple
+from typing import Tuple, Union
 
 from vllm.sequence import Sequence, SequenceGroup
 
@@ -22,26 +22,6 @@ class AllocStatus(enum.Enum):
     OK = enum.auto()
     LATER = enum.auto()
     NEVER = enum.auto()
-
-
-class BlocksToSwapIn:
-
-    def __init__(self,
-                 cpu_blocks: Optional[List[Tuple[int, int]]] = None,
-                 kv_cache_blocks: Optional[List[Tuple[torch.Tensor,
-                                                      List[int]]]] = None):
-        self._cpu_blocks: List[Tuple[
-            int, int]] = [] if cpu_blocks is None else cpu_blocks
-        self._kv_cache_blocks: List[Tuple[
-            torch.Tensor,
-            List[int]]] = [] if kv_cache_blocks is None else kv_cache_blocks
-
-    def append(self, blocks: "BlocksToSwapIn"):
-        self._cpu_blocks.extend(blocks._cpu_blocks)
-        self._kv_cache_blocks.extend(blocks._kv_cache_blocks)
-
-    def is_empty(self):
-        return (not self._cpu_blocks) and (not self._kv_cache_blocks)
 
 
 class BlockSpaceManager(ABC):
@@ -96,7 +76,9 @@ class BlockSpaceManager(ABC):
         pass
 
     @abstractmethod
-    def swap_in(self, seq_group: SequenceGroup) -> BlocksToSwapIn:
+    def swap_in(
+        self, seq_group: SequenceGroup
+    ) -> Union[List[Tuple[int, int]], Tuple[torch.Tensor, List[int]]]:
         pass
 
     @abstractmethod
