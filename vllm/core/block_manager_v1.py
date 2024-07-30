@@ -506,15 +506,20 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         assert (num_lookahead_slots == 0
                 ), "BlockSpaceManagerV1 does not support lookahead allocation"
 
-        blocks = self._get_physical_blocks(seq_group)
-        num_swapped_seqs = seq_group.num_seqs(status=SequenceStatus.SWAPPED)
-        if seq_group.is_encoder_decoder():
-            num_swapped_seqs += 1
+        if seq_group.input_is_kv_cache():
+            num_required_blocks = self._get_seq_num_required_blocks(
+                seq_group.get_seqs()[0])
+        else:
+            blocks = self._get_physical_blocks(seq_group)
+            num_swapped_seqs = seq_group.num_seqs(
+                status=SequenceStatus.SWAPPED)
+            if seq_group.is_encoder_decoder():
+                num_swapped_seqs += 1
+            # NOTE: Conservatively, we assume that every sequence will allocate
+            # at least one free block right after the swap-in.
+            # NOTE: This should match the logic in can_append_slot().
+            num_required_blocks = len(blocks) + num_swapped_seqs
         num_free_blocks = self.gpu_allocator.get_num_free_blocks()
-        # NOTE: Conservatively, we assume that every sequence will allocate
-        # at least one free block right after the swap-in.
-        # NOTE: This should match the logic in can_append_slot().
-        num_required_blocks = len(blocks) + num_swapped_seqs
         if self.gpu_allocator.get_num_total_blocks() < num_required_blocks:
             return AllocStatus.NEVER
         elif num_free_blocks - num_required_blocks >= self.watermark_blocks:
@@ -566,6 +571,19 @@ class BlockSpaceManagerV1(BlockSpaceManager):
 
         return [(cpu_block.block_number, gpu_block.block_number)
                 for cpu_block, gpu_block in mapping.items()]
+
+    def swap_in_prefill_kv_cache(
+            self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+        assert len(seq_group.get_seqs()) == 1
+        seq = seq_group.get_seqs()[0]
+        new_blocks = self._allocate_sequence(
+            seq=seq,
+            ref_count=1,
+            is_encoder_decoder=seq_group.is_encoder_decoder())
+        self.block_tables[seq.seq_id] = new_blocks
+        # -1 means no src block.
+        # worker need to copy data from sequence's kv cache input
+        return [(-1, block.block_number) for block in new_blocks]
 
     def can_swap_out(self, seq_group: SequenceGroup) -> bool:
         blocks = self._get_physical_blocks(seq_group)

@@ -623,6 +623,9 @@ class SequenceGroup:
         # Every sequence should be in the same stage.
         return self.get_seqs()[0].is_prefill()
 
+    def input_is_kv_cache(self) -> bool:
+        return self.get_seqs()[0].inputs.get("kv_cache", None) is not None
+
     def __repr__(self) -> str:
         return (f"SequenceGroup(request_id={self.request_id}, "
                 f"sampling_params={self.sampling_params}, "

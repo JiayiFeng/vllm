@@ -380,6 +380,11 @@ class BlockSpaceManagerV2(BlockSpaceManager):
 
         return physical_block_id_mapping
 
+    def swap_in_prefill_kv_cache(
+            self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+        raise NotImplementedError(
+            "BlockSpaceManagerV2 swap_in_prefill_kv_cache is not implemented")
+
     def can_swap_out(self, seq_group: SequenceGroup) -> bool:
         """Returns whether we can swap out the given sequence_group 
         with num_lookahead_slots.

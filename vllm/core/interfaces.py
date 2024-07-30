@@ -77,6 +77,11 @@ class BlockSpaceManager(ABC):
         pass
 
     @abstractmethod
+    def swap_in_prefill_kv_cache(
+            self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+        pass
+
+    @abstractmethod
     def can_swap_out(self, seq_group: SequenceGroup) -> bool:
         pass
 
