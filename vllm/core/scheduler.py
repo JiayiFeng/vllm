@@ -4,20 +4,16 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import (TYPE_CHECKING, Deque, Dict, Iterable, List, Optional, Set,
-                    Tuple, Union)
+from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
-from vllm.core.interfaces import AllocStatus, BlockSpaceManager
+from vllm.core.interfaces import AllocStatus, BlockSpaceManager, BlocksToSwapIn
 from vllm.core.policy import Policy, PolicyFactory
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceStatus)
-
-if TYPE_CHECKING:
-    import torch
 
 logger = init_logger(__name__)
 
@@ -123,8 +119,7 @@ class SchedulerOutputs:
     # Total number of batched tokens.
     num_batched_tokens: int
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
-                                                         List[int]]]]
+    blocks_to_swap_in: BlocksToSwapIn
     # Blocks to swap out. List of GPU -> CPU block number.
     blocks_to_swap_out: List[Tuple[int, int]]
     # Blocks to copy. Source to dest block.
@@ -139,7 +134,8 @@ class SchedulerOutputs:
 
     def __post_init__(self):
         # Swap in and swap out should never happen at the same time.
-        assert not (self.blocks_to_swap_in and self.blocks_to_swap_out)
+        assert not (not self.blocks_to_swap_in.is_empty()
+                    and self.blocks_to_swap_out)
 
         self.num_loras: int = len(self.lora_requests)
         if self.num_loras > 0:
@@ -149,7 +145,8 @@ class SchedulerOutputs:
 
     def is_empty(self) -> bool:
         # NOTE: We do not consider the ignored sequence groups.
-        return (not self.scheduled_seq_groups and not self.blocks_to_swap_in
+        return (not self.scheduled_seq_groups
+                and self.blocks_to_swap_in.is_empty()
                 and not self.blocks_to_swap_out and not self.blocks_to_copy)
 
     def _sort_by_lora_ids(self):
@@ -223,8 +220,7 @@ class SchedulerSwappedInOutputs:
     # phase. I.e., it means the prefill has been chunked.
     prefill_seq_groups: List[SequenceGroup]
     # The blocks to swap in.
-    blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
-                                                         List[int]]]]
+    blocks_to_swap_in: BlocksToSwapIn
     # The blocks to copy.
     blocks_to_copy: List[Tuple[int, int]]
     # The number of slots for lookahead decoding.
@@ -237,7 +233,7 @@ class SchedulerSwappedInOutputs:
         return SchedulerSwappedInOutputs(
             decode_seq_groups=[],
             prefill_seq_groups=[],
-            blocks_to_swap_in=[],
+            blocks_to_swap_in=BlocksToSwapIn(),
             blocks_to_copy=[],
             num_lookahead_slots=0,
             infeasible_seq_groups=[],
@@ -553,8 +549,7 @@ class Scheduler:
             SchedulerSwappedInOutputs.
         """
         # Blocks that need to be swapped or copied before model execution.
-        blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
-                                                             List[int]]]] = []
+        blocks_to_swap_in = BlocksToSwapIn()
         blocks_to_copy: List[Tuple[int, int]] = []
         decode_seq_groups: List[ScheduledSequenceGroup] = []
         prefill_seq_groups: List[ScheduledSequenceGroup] = []
@@ -1171,13 +1166,10 @@ class Scheduler:
     def _swap_in(
         self,
         seq_group: SequenceGroup,
-        blocks_to_swap_in: List[Union[Tuple[int, int], Tuple[torch.Tensor,
-                                                             List[int]]]],
+        blocks_to_swap_in: BlocksToSwapIn,
     ) -> None:
         mapping = self.block_manager.swap_in(seq_group)
-        if isinstance(mapping, tuple):
-            mapping = [mapping]
-        blocks_to_swap_in.extend(mapping)
+        blocks_to_swap_in.append(mapping)
         for seq in seq_group.get_seqs(status=SequenceStatus.SWAPPED):
             seq.status = SequenceStatus.RUNNING
 
