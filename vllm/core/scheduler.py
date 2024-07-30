@@ -116,8 +116,8 @@ class BlocksToSwapIn:
         else:
             self._cpu_blocks.extend(blocks)
 
-    def is_empty(self):
-        return (not self._cpu_blocks) and (not self._kv_cache_blocks)
+    def __bool__(self):
+        return self._cpu_blocks or self._kv_cache_blocks
 
 
 @dataclass
@@ -155,8 +155,7 @@ class SchedulerOutputs:
 
     def __post_init__(self):
         # Swap in and swap out should never happen at the same time.
-        assert not (not self.blocks_to_swap_in.is_empty()
-                    and self.blocks_to_swap_out)
+        assert not (self.blocks_to_swap_in and self.blocks_to_swap_out)
 
         self.num_loras: int = len(self.lora_requests)
         if self.num_loras > 0:
@@ -166,8 +165,7 @@ class SchedulerOutputs:
 
     def is_empty(self) -> bool:
         # NOTE: We do not consider the ignored sequence groups.
-        return (not self.scheduled_seq_groups
-                and self.blocks_to_swap_in.is_empty()
+        return (not self.scheduled_seq_groups and not self.blocks_to_swap_in
                 and not self.blocks_to_swap_out and not self.blocks_to_copy)
 
     def _sort_by_lora_ids(self):
