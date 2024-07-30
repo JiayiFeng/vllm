@@ -254,6 +254,7 @@ class Sequence:
             lora_request: Optional[LoRARequest] = None,
             prompt_adapter_request: Optional[PromptAdapterRequest] = None
     ) -> None:
+        kv_cache_as_input = inputs.get("kv_cache", None) is not None
         self.seq_id = seq_id
         self.inputs = inputs
         self.block_size = block_size
@@ -262,10 +263,17 @@ class Sequence:
         self.prompt_adapter_request = prompt_adapter_request
 
         self.data = SequenceData(self.prompt_token_ids)
+        if kv_cache_as_input:
+            # all prefill tokens have been computed.
+            # invoking 'update_num_computed_tokens' will
+            # update number of computed tokens and set status to DECODE
+            self.data.update_num_computed_tokens(
+                num_new_computed_tokens=self.data.get_len())
         self.output_logprobs: SampleLogprobs = []
         self.output_text = ""
 
-        self.status = SequenceStatus.WAITING
+        self.status = SequenceStatus.WAITING if \
+            not kv_cache_as_input else SequenceStatus.SWAPPED
         self.stop_reason: Union[int, str, None] = None
 
         # Used for incremental detokenization

@@ -342,7 +342,11 @@ class Scheduler:
 
     def add_seq_group(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the waiting queue.
-        self.waiting.append(seq_group)
+        if seq_group.get_seqs()[0].status == SequenceStatus.SWAPPED:
+            self.swapped.append(seq_group)
+        else:
+            assert seq_group.is_prefill()
+            self.waiting.append(seq_group)
 
     def abort_seq_group(self, request_id: Union[str, Iterable[str]]) -> None:
         """Aborts a sequence group with the given ID.
