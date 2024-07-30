@@ -41,7 +41,7 @@ class BlocksToSwapIn:
         self._kv_cache_blocks.extend(blocks._kv_cache_blocks)
 
     def is_empty(self):
-        return len(self._cpu_blocks) == 0 and len(self._kv_cache_blocks) == 0
+        return (not self._cpu_blocks) and (not self._kv_cache_blocks)
 
 
 class BlockSpaceManager(ABC):
