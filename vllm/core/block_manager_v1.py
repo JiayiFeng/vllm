@@ -3,9 +3,9 @@ import math
 from abc import ABC, abstractmethod
 from itertools import count, takewhile
 from os.path import commonprefix
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 from typing import Sequence as GenericSequence
-from typing import Set, Tuple
+from typing import Set, Tuple, Union
 
 from vllm.block import BlockTable, PhysicalTokenBlock
 from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
@@ -14,6 +14,9 @@ from vllm.core.interfaces import AllocStatus, BlockSpaceManager
 from vllm.logger import init_logger
 from vllm.sequence import Sequence, SequenceGroup, SequenceStatus
 from vllm.utils import Device
+
+if TYPE_CHECKING:
+    import torch
 
 logger = init_logger(__name__)
 
@@ -548,7 +551,11 @@ class BlockSpaceManagerV1(BlockSpaceManager):
 
         return new_block_table
 
-    def swap_in(self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+    def swap_in(
+        self, seq_group: SequenceGroup
+    ) -> Union[List[Tuple[int, int]], Tuple[torch.Tensor, List[int]]]:
+        if seq_group.input_is_kv_cache():
+            return self._swap_in_prefill_kv_cache(seq_group)
 
         request_id = seq_group.request_id
 
@@ -572,8 +579,8 @@ class BlockSpaceManagerV1(BlockSpaceManager):
         return [(cpu_block.block_number, gpu_block.block_number)
                 for cpu_block, gpu_block in mapping.items()]
 
-    def swap_in_prefill_kv_cache(
-            self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+    def _swap_in_prefill_kv_cache(
+            self, seq_group: SequenceGroup) -> Tuple[torch.Tensor, List[int]]:
         assert len(seq_group.get_seqs()) == 1
         seq = seq_group.get_seqs()[0]
         new_blocks = self._allocate_sequence(
@@ -581,9 +588,9 @@ class BlockSpaceManagerV1(BlockSpaceManager):
             ref_count=1,
             is_encoder_decoder=seq_group.is_encoder_decoder())
         self.block_tables[seq.seq_id] = new_blocks
-        # -1 means no src block.
-        # worker need to copy data from sequence's kv cache input
-        return [(-1, block.block_number) for block in new_blocks]
+        return seq.inputs["kv_cache"], [
+            block.block_number for block in new_blocks
+        ]
 
     def can_swap_out(self, seq_group: SequenceGroup) -> bool:
         blocks = self._get_physical_blocks(seq_group)

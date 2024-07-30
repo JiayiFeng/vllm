@@ -1166,9 +1166,7 @@ class Scheduler:
         seq_group: SequenceGroup,
         blocks_to_swap_in: List[Tuple[int, int]],
     ) -> None:
-        mapping = self.block_manager.swap_in(seq_group) if \
-            not seq_group.input_is_kv_cache() \
-            else self.block_manager.swap_in_prefill_kv_cache(seq_group)
+        mapping = self.block_manager.swap_in(seq_group)
         blocks_to_swap_in.extend(mapping)
         for seq in seq_group.get_seqs(status=SequenceStatus.SWAPPED):
             seq.status = SequenceStatus.RUNNING
