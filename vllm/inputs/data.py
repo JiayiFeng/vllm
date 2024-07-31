@@ -103,7 +103,7 @@ class PrefillKVCachePrompt(TypedDict):
     Optional multi-modal data to pass to the model,
     if the model supports it.
     """
-    kv_cache: torch.Tensor
+    kv_cache: "torch.Tensor"
     """
     The prefill key-value cache to pass to the model, if available.
     """
@@ -138,7 +138,7 @@ class LLMInputs(TypedDict):
     if the model supports it.
     """
 
-    kv_cache: NotRequired[Optional[torch.Tensor]]
+    kv_cache: NotRequired[Optional["torch.Tensor"]]
     """
     The prefill key-value cache to pass to the model, if available.
     """

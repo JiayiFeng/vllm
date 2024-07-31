@@ -553,7 +553,7 @@ class BlockSpaceManagerV1(BlockSpaceManager):
 
     def swap_in(
         self, seq_group: SequenceGroup
-    ) -> Union[List[Tuple[int, int]], Tuple[torch.Tensor, List[int]]]:
+    ) -> Union[List[Tuple[int, int]], Tuple["torch.Tensor", List[int]]]:
         if seq_group.input_is_kv_cache():
             return self._swap_in_prefill_kv_cache(seq_group)
 
@@ -580,7 +580,8 @@ class BlockSpaceManagerV1(BlockSpaceManager):
                 for cpu_block, gpu_block in mapping.items()]
 
     def _swap_in_prefill_kv_cache(
-            self, seq_group: SequenceGroup) -> Tuple[torch.Tensor, List[int]]:
+            self,
+            seq_group: SequenceGroup) -> Tuple["torch.Tensor", List[int]]:
         assert len(seq_group.get_seqs()) == 1
         seq = seq_group.get_seqs()[0]
         new_blocks = self._allocate_sequence(

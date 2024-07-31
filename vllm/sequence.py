@@ -21,6 +21,30 @@ if TYPE_CHECKING:
     from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
 
+class BlocksToSwapIn:
+
+    def __init__(self):
+        self._cpu_blocks: List[Tuple[int, int]] = []
+        self._kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]] = []
+
+    def append(self, blocks: Union[List[Tuple[int, int]], Tuple[torch.Tensor,
+                                                                List[int]]]):
+        if isinstance(blocks, tuple):
+            self._kv_cache_blocks.append(blocks)
+        else:
+            self._cpu_blocks.extend(blocks)
+
+    def copy(self):
+        res = BlocksToSwapIn()
+        res._cpu_blocks = self._cpu_blocks.copy()
+        res._kv_cache_blocks = [(tensor.clone(), blocks.copy())
+                                for tensor, blocks in self._kv_cache_blocks]
+        return res
+
+    def __bool__(self):
+        return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
+
+
 @dataclass
 class Logprob:
     """Infos for supporting OpenAI compatible logprobs and token ranks.
@@ -984,7 +1008,7 @@ class ExecuteModelRequest:
     # The sequence group metadata list.
     seq_group_metadata_list: List[SequenceGroupMetadata]
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: List[Tuple[int, int]] = field(default_factory=list)
+    blocks_to_swap_in: BlocksToSwapIn = field(default_factory=BlocksToSwapIn)
     # Blocks to swap out. List of GPU -> CPU block number.
     blocks_to_swap_out: List[Tuple[int, int]] = field(default_factory=list)
     # Blocks to copy. Source to dest block.
