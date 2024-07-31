@@ -914,10 +914,10 @@ class LLMEngine:
                 num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
                 running_queue_size=scheduler_outputs.running_queue_size,
                 finished_requests_ids=finished_requests_ids)
-            output = self.model_executor.execute_model(
-                execute_model_req=execute_model_req)
             import pdb
             pdb.set_trace()
+            output = self.model_executor.execute_model(
+                execute_model_req=execute_model_req)
         else:
             output = []
 

@@ -4,7 +4,8 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import (TYPE_CHECKING, Deque, Dict, Iterable, List, Optional, Set,
+                    Tuple, Union)
 
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
@@ -12,9 +13,11 @@ from vllm.core.policy import Policy, PolicyFactory
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.prompt_adapter.request import PromptAdapterRequest
-from vllm.sequence import (BlocksToSwapIn, Sequence, SequenceData,
-                           SequenceGroup, SequenceGroupMetadata,
-                           SequenceStatus)
+from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
+                           SequenceGroupMetadata, SequenceStatus)
+
+if TYPE_CHECKING:
+    import torch
 
 logger = init_logger(__name__)
 
@@ -98,6 +101,30 @@ class SchedulingBudget:
     @property
     def num_curr_seqs(self):
         return self._num_curr_seqs
+
+
+class BlocksToSwapIn:
+
+    def __init__(self):
+        self._cpu_blocks: List[Tuple[int, int]] = []
+        self._kv_cache_blocks: List[Tuple["torch.Tensor", List[int]]] = []
+
+    def append(self, blocks: Union[List[Tuple[int, int]], Tuple["torch.Tensor",
+                                                                List[int]]]):
+        if isinstance(blocks, tuple):
+            self._kv_cache_blocks.append(blocks)
+        else:
+            self._cpu_blocks.extend(blocks)
+
+    def copy(self):
+        res = BlocksToSwapIn()
+        res._cpu_blocks = self._cpu_blocks.copy()
+        res._kv_cache_blocks = [(tensor.clone(), blocks.copy())
+                                for tensor, blocks in self._kv_cache_blocks]
+        return res
+
+    def __bool__(self):
+        return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
 
 
 @dataclass
