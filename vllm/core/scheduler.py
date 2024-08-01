@@ -4,8 +4,9 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import (TYPE_CHECKING, Deque, Dict, Iterable, List, Optional, Set,
-                    Tuple, Union)
+from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
+
+import torch
 
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
@@ -15,9 +16,6 @@ from vllm.lora.request import LoRARequest
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceStatus)
-
-if TYPE_CHECKING:
-    import torch
 
 logger = init_logger(__name__)
 
@@ -103,6 +101,28 @@ class SchedulingBudget:
         return self._num_curr_seqs
 
 
+@dataclass
+class BlockToSwapInTensors:
+    cpu_blocks: torch.Tensor
+    # kv_cache tensor shape:
+    # [2(k/v), num_layers, seq_len, num_heads, head_size]
+    kv_cache_blocks: List[Tuple[torch.Tensor, torch.Tensor]]
+
+    def tp_split(self, rank: int, word_size: int) -> "BlockToSwapInTensors":
+        if not self.kv_cache_blocks:
+            tp_kv_cache = []
+        else:
+            num_tp_heads = self.kv_cache_blocks[0][0].size(3) // word_size
+            start, end = rank * num_tp_heads, (rank + 1) * num_tp_heads
+            tp_kv_cache = [(kv_cache[:, :, :, start:end, :], blocks)
+                           for kv_cache, blocks in self.kv_cache_blocks]
+        return BlockToSwapInTensors(cpu_blocks=self.cpu_blocks,
+                                    kv_cache_blocks=tp_kv_cache)
+
+    def __bool__(self):
+        return self.cpu_blocks.numel() > 0 or len(self.kv_cache_blocks) > 0
+
+
 class BlocksToSwapIn:
 
     def __init__(self):
@@ -125,6 +145,17 @@ class BlocksToSwapIn:
 
     def __bool__(self):
         return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
+
+    def to_tensors(self):
+        cpu_blocks_tensor = torch.tensor(self._cpu_blocks,
+                                         device="cpu",
+                                         dtype=torch.int64).view(-1, 2)
+        kv_cache_blocks_tensors = [
+            (kv_cache, torch.tensor(blocks, device="cpu", dtype=torch.int64))
+            for kv_cache, blocks in self._kv_cache_blocks
+        ]
+        return BlockToSwapInTensors(cpu_blocks=cpu_blocks_tensor,
+                                    kv_cache_blocks=kv_cache_blocks_tensors)
 
 
 @dataclass
