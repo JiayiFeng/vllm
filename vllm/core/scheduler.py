@@ -107,17 +107,24 @@ class BlocksToSwapIn:
 
     def __init__(self):
         self._cpu_blocks: List[Tuple[int, int]] = []
-        self._kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]] = []
+        self._kv_cache_blocks: List[Tuple["torch.Tensor", List[int]]] = []
 
-    def append(self, blocks: Union[List[Tuple[int, int]], Tuple[torch.Tensor,
+    def append(self, blocks: Union[List[Tuple[int, int]], Tuple["torch.Tensor",
                                                                 List[int]]]):
         if isinstance(blocks, tuple):
             self._kv_cache_blocks.append(blocks)
         else:
             self._cpu_blocks.extend(blocks)
 
+    def copy(self):
+        res = BlocksToSwapIn()
+        res._cpu_blocks = self._cpu_blocks.copy()
+        res._kv_cache_blocks = [(tensor.clone(), blocks.copy())
+                                for tensor, blocks in self._kv_cache_blocks]
+        return res
+
     def __bool__(self):
-        return self._cpu_blocks or self._kv_cache_blocks
+        return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
 
 
 @dataclass

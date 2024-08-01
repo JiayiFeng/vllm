@@ -16,6 +16,7 @@ from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import SamplingParams
 
 if TYPE_CHECKING:
+    from vllm.core.scheduler import BlocksToSwapIn
     from vllm.inputs import LLMInputs
     from vllm.multimodal import MultiModalDataDict
     from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
@@ -984,7 +985,7 @@ class ExecuteModelRequest:
     # The sequence group metadata list.
     seq_group_metadata_list: List[SequenceGroupMetadata]
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: List[Tuple[int, int]] = field(default_factory=list)
+    blocks_to_swap_in: "BlocksToSwapIn"
     # Blocks to swap out. List of GPU -> CPU block number.
     blocks_to_swap_out: List[Tuple[int, int]] = field(default_factory=list)
     # Blocks to copy. Source to dest block.

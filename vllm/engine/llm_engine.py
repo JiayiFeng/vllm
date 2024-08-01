@@ -25,7 +25,6 @@ from vllm.engine.output_processor.util import create_output_by_sequence_group
 from vllm.executor.executor_base import ExecutorBase
 from vllm.executor.ray_utils import initialize_ray_cluster
 from vllm.inputs import INPUT_REGISTRY, LLMInputs, PromptInputs
-from vllm.inputs.data import PrefillKVCachePrompt
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.outputs import (EmbeddingRequestOutput, RequestOutput,
@@ -574,7 +573,7 @@ class LLMEngine:
         lora_request: Optional[LoRARequest] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
     ) -> LLMInputs:
-        if isinstance(inputs, PrefillKVCachePrompt):
+        if "kv_cache" in inputs:
             return LLMInputs(prompt=inputs["prompt"],
                              prompt_token_ids=inputs["prompt_token_ids"],
                              multi_modal_data=inputs.get("multi_modal_data"),

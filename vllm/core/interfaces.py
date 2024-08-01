@@ -78,7 +78,7 @@ class BlockSpaceManager(ABC):
     @abstractmethod
     def swap_in(
         self, seq_group: SequenceGroup
-    ) -> Union[List[Tuple[int, int]], Tuple[torch.Tensor, List[int]]]:
+    ) -> Union[List[Tuple[int, int]], Tuple["torch.Tensor", List[int]]]:
         pass
 
     @abstractmethod
