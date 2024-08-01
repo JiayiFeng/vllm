@@ -1,5 +1,5 @@
 """CacheEngine class for managing the KV cache."""
-from typing import List
+from typing import List, Tuple, Union
 
 import torch
 
@@ -88,10 +88,23 @@ class CacheEngine:
                             device=device))
         return kv_cache
 
-    def swap_in(self, src_to_dst: torch.Tensor) -> None:
+    def swap_in(
+        self, src_to_dst: Union[torch.Tensor, List[Tuple[torch.Tensor,
+                                                         torch.Tensor]]]
+    ) -> None:
         for i in range(self.num_attention_layers):
-            self.attn_backend.swap_blocks(self.cpu_cache[i], self.gpu_cache[i],
-                                          src_to_dst)
+            if isinstance(src_to_dst, torch.Tensor):
+                self.attn_backend.swap_blocks(self.cpu_cache[i],
+                                              self.gpu_cache[i], src_to_dst)
+            else:
+                # kv_cache tensor shape:
+                # [2(k/v), num_layers, seq_len, num_heads, head_size]
+                self.attn_backend.swap_in_kv_cache(
+                    dst_kv_cache=self.gpu_cache[i],
+                    kv_cache=[
+                        kv_cache[:, i, :, :, :] for kv_cache, _ in src_to_dst
+                    ],
+                    dst_block_idx=[block_ids for _, block_ids in src_to_dst])
 
     def swap_out(self, src_to_dst: torch.Tensor) -> None:
         for i in range(self.num_attention_layers):

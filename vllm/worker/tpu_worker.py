@@ -237,6 +237,9 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
 
         # Issue cache operations.
         if worker_input.blocks_to_swap_in is not None:
+            if isinstance(worker_input.blocks_to_swap_in, list):
+                raise NotImplementedError("tpu_worker does not support "
+                                          "kv_cache as input.")
             src_indices, dst_indices = worker_input.blocks_to_swap_in
             if src_indices.numel() > 0:
                 # Swap from CPU to TPU.

@@ -105,6 +105,11 @@ class SchedulingBudget:
 
 class BlocksToSwapIn:
 
+    class Type(enum.Enum):
+        CPU = 1
+        KV_CACHE = 2
+        NONE = 3
+
     def __init__(self):
         self._cpu_blocks: List[Tuple[int, int]] = []
         self._kv_cache_blocks: List[Tuple["torch.Tensor", List[int]]] = []
@@ -125,6 +130,18 @@ class BlocksToSwapIn:
 
     def __bool__(self):
         return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
+
+    def type(self) -> Type:
+        if not self.__bool__():
+            return BlocksToSwapIn.Type.NONE
+        return BlocksToSwapIn.Type.CPU if len(
+            self._cpu_blocks) > 0 else BlocksToSwapIn.Type.KV_CACHE
+
+    def get(
+        self
+    ) -> Union[List[Tuple[int, int]], List[Tuple["torch.Tensor", List[int]]]]:
+        return self._kv_cache_blocks if self.type(
+        ) == BlocksToSwapIn.Type.KV_CACHE else self._cpu_blocks
 
 
 @dataclass

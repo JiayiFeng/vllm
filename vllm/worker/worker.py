@@ -10,6 +10,7 @@ from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, MultiModalConfig, ParallelConfig,
                          PromptAdapterConfig, SchedulerConfig,
                          SpeculativeConfig)
+from vllm.core.scheduler import BlocksToSwapIn
 from vllm.distributed import (ensure_model_parallel_initialized,
                               init_distributed_environment,
                               set_custom_all_reduce)
@@ -66,7 +67,7 @@ class Worker(LocalOrDistributedWorkerBase):
         self.is_driver_worker = is_driver_worker
         if parallel_config and is_driver_worker:
             assert rank % parallel_config.tensor_parallel_size == 0, \
-                   "Driver worker should be rank 0 of tensor parallel group."
+                "Driver worker should be rank 0 of tensor parallel group."
         if self.model_config.trust_remote_code:
             # note: lazy import to avoid importing torch before initializing
             from vllm.utils import init_cached_hf_modules
@@ -253,9 +254,25 @@ class Worker(LocalOrDistributedWorkerBase):
         num_seq_groups = len(execute_model_req.seq_group_metadata_list)
         # `blocks_to_swap_in` and `blocks_to_swap_out` are cpu tensors.
         # they contain parameters to launch cudamemcpyasync.
-        blocks_to_swap_in = torch.tensor(execute_model_req.blocks_to_swap_in,
-                                         device="cpu",
-                                         dtype=torch.int64).view(-1, 2)
+        if execute_model_req.blocks_to_swap_in.type(
+        ) == BlocksToSwapIn.Type.KV_CACHE:
+            assert self.parallel_config.pipeline_parallel_size == 1
+            num_head_per_rank = self.model_config.get_num_kv_heads(
+                self.parallel_config)
+            head_id_start, head_id_end = (num_head_per_rank * self.rank,
+                                          num_head_per_rank * (self.rank + 1))
+            blocks_to_swap_in = [(kv_cache[:, :, :,
+                                           head_id_start:head_id_end, :],
+                                  torch.tensor(block_id_list,
+                                               device="cpu",
+                                               dtype=torch.int64))
+                                 for kv_cache, block_id_list in
+                                 execute_model_req.blocks_to_swap_in.get()]
+        else:
+            blocks_to_swap_in = torch.tensor(
+                execute_model_req.blocks_to_swap_in.get(),
+                device="cpu",
+                dtype=torch.int64).view(-1, 2)
         blocks_to_swap_out = torch.tensor(execute_model_req.blocks_to_swap_out,
                                           device="cpu",
                                           dtype=torch.int64).view(-1, 2)
@@ -279,7 +296,8 @@ class Worker(LocalOrDistributedWorkerBase):
         virtual_engine = worker_input.virtual_engine
         # Issue cache operations.
         if (worker_input.blocks_to_swap_in is not None
-                and worker_input.blocks_to_swap_in.numel() > 0):
+                and (isinstance(worker_input.blocks_to_swap_in, list)
+                     or worker_input.blocks_to_swap_in.numel() > 0)):
             self.cache_engine[virtual_engine].swap_in(
                 worker_input.blocks_to_swap_in)
         if (worker_input.blocks_to_swap_out is not None
