@@ -71,7 +71,7 @@ class AttentionBackend(ABC):
     @abstractmethod
     def swap_in_kv_cache(
         dst_kv_cache: torch.Tensor,
-        kv_cache_blocks: List[Tuple[torch.Tensor, torch.Tensor]],
+        kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]],
     ) -> None:
         raise NotImplementedError
 

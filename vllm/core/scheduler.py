@@ -102,13 +102,14 @@ class SchedulingBudget:
 
 
 @dataclass
-class BlockToSwapInTensors:
+class WorkerInputBlockToSwapIn:
     cpu_blocks: torch.Tensor
     # kv_cache tensor shape:
     # [2(k/v), num_layers, seq_len, num_heads, head_size]
-    kv_cache_blocks: List[Tuple[torch.Tensor, torch.Tensor]]
+    kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]]
 
-    def tp_split(self, rank: int, word_size: int) -> "BlockToSwapInTensors":
+    def tp_split(self, rank: int,
+                 word_size: int) -> "WorkerInputBlockToSwapIn":
         if not self.kv_cache_blocks:
             tp_kv_cache = []
         else:
@@ -116,8 +117,8 @@ class BlockToSwapInTensors:
             start, end = rank * num_tp_heads, (rank + 1) * num_tp_heads
             tp_kv_cache = [(kv_cache[:, :, :, start:end, :], blocks)
                            for kv_cache, blocks in self.kv_cache_blocks]
-        return BlockToSwapInTensors(cpu_blocks=self.cpu_blocks,
-                                    kv_cache_blocks=tp_kv_cache)
+        return WorkerInputBlockToSwapIn(cpu_blocks=self.cpu_blocks,
+                                        kv_cache_blocks=tp_kv_cache)
 
     def __bool__(self):
         return self.cpu_blocks.numel() > 0 or len(self.kv_cache_blocks) > 0
@@ -150,12 +151,8 @@ class BlocksToSwapIn:
         cpu_blocks_tensor = torch.tensor(self._cpu_blocks,
                                          device="cpu",
                                          dtype=torch.int64).view(-1, 2)
-        kv_cache_blocks_tensors = [
-            (kv_cache, torch.tensor(blocks, device="cpu", dtype=torch.int64))
-            for kv_cache, blocks in self._kv_cache_blocks
-        ]
-        return BlockToSwapInTensors(cpu_blocks=cpu_blocks_tensor,
-                                    kv_cache_blocks=kv_cache_blocks_tensors)
+        return WorkerInputBlockToSwapIn(cpu_blocks=cpu_blocks_tensor,
+                                        kv_cache_blocks=self._kv_cache_blocks)
 
 
 @dataclass

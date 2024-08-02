@@ -443,6 +443,25 @@ def swap_blocks(src: torch.Tensor, dst: torch.Tensor,
     torch.ops._C_cache_ops.swap_blocks(src, dst, block_mapping)
 
 
+def swap_in_kv_cache(
+    dst_kv_cache: torch.Tensor,
+    kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]],
+) -> None:
+    block_size = dst_kv_cache.size(2)
+    for kv_cache, block_ids in kv_cache_blocks:
+        seq_len = kv_cache.size(1)
+        start_idx = 0
+        for idx in block_ids:
+            length = min(block_size, seq_len - start_idx)
+            dst_kv_cache[:,
+                         idx, :length, :, :] = kv_cache[:,
+                                                        start_idx:start_idx +
+                                                        length, :, :].to(
+                                                            dst_kv_cache.device
+                                                        )
+            start_idx += length
+
+
 def convert_fp8(output: torch.Tensor,
                 input: torch.Tensor,
                 scale: float = 1.0,
@@ -555,9 +574,9 @@ for k, v in names_and_values.items():
     # the case when users use `import __annotations__` to turn type
     # hints into strings.
     if isinstance(v, fn_type) \
-        and v.__code__.co_filename == __file__ \
-        and any(arg is torch.Tensor or arg == "torch.Tensor"
-                   for arg in v.__annotations__.values()):
+            and v.__code__.co_filename == __file__ \
+            and any(arg is torch.Tensor or arg == "torch.Tensor"
+                    for arg in v.__annotations__.values()):
         names_and_values_to_update[k] = hint_on_error(v)
 
 names_and_values.update(names_and_values_to_update)
