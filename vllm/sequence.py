@@ -256,20 +256,29 @@ class Sequence:
             prompt_adapter_request: Optional[PromptAdapterRequest] = None
     ) -> None:
         kv_cache_as_input = inputs.get("kv_cache", None) is not None
+        seq_data_input = copy.copy(inputs)
+        output_token = None
+        if kv_cache_as_input:
+            output_token = [inputs["prompt_token_ids"][-1]]
+            seq_data_input["prompt_token_ids"] = inputs[
+                "prompt_token_ids"][:-1]
+            seq_data_input["kv_cache"] = inputs["kv_cache"][:, :, :-1, :, :]
         self.seq_id = seq_id
-        self.inputs = inputs
+        self.inputs = seq_data_input
         self.block_size = block_size
         self.eos_token_id = eos_token_id
         self.lora_request = lora_request
         self.prompt_adapter_request = prompt_adapter_request
 
-        self.data = SequenceData(self.prompt_token_ids)
+        self.data = SequenceData(prompt_token_ids=self.prompt_token_ids,
+                                 output_token_ids=output_token)
         if kv_cache_as_input:
             # all prefill tokens have been computed.
             # invoking 'update_num_computed_tokens' will
             # update number of computed tokens and set status to DECODE
             self.data.update_num_computed_tokens(
-                num_new_computed_tokens=self.data.get_len())
+                num_new_computed_tokens=len(self.prompt_token_ids))
+            self.data._stage = SequenceStage.DECODE
         self.output_logprobs: SampleLogprobs = []
         self.output_text = ""
 
