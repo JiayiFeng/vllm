@@ -453,12 +453,9 @@ def swap_in_kv_cache(
         start_idx = 0
         for idx in block_ids:
             length = min(block_size, seq_len - start_idx)
-            dst_kv_cache[:,
-                         idx, :length, :, :] = kv_cache[:,
-                                                        start_idx:start_idx +
-                                                        length, :, :].to(
-                                                            dst_kv_cache.device
-                                                        )
+            dst_kv_cache[:, idx, :length, :, :].copy_(
+                kv_cache[:, start_idx:start_idx + length, :, :],
+                non_blocking=True)
             start_idx += length
 
 
