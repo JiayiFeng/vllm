@@ -125,49 +125,52 @@ class WorkerInputBlockToSwapIn:
         return self.cpu_blocks.numel() > 0 or len(self.kv_cache_blocks) > 0
 
     def to_tensor_dict(self) -> Dict[str, torch.Tensor]:
-        accum_seq_len = torch.tensor(list(
-            itertools.accumulate([t.shape[2]
-                                  for t, _ in self.kv_cache_blocks])),
-                                     device="cpu",
-                                     dtype=torch.int64)
-        concat_kv_caches = torch.concat([t for t, _ in self.kv_cache_blocks],
-                                        dim=2)
-        accum_num_blocks = torch.tensor(list(
-            itertools.accumulate([len(b) for _, b in self.kv_cache_blocks])),
-                                        device="cpu",
-                                        dtype=torch.int64)
-        concat_block_ids = torch.tensor(list(
-            itertools.chain(*[b for _, b in self.kv_cache_blocks])),
-                                        device="cpu",
-                                        dtype=torch.int64)
-        return {
+        res = {
             "cpu_blocks": self.cpu_blocks,
-            "accum_seq_len": accum_seq_len,
-            "concat_kv_caches": concat_kv_caches,
-            "accum_num_blocks": accum_num_blocks,
-            "concat_block_ids": concat_block_ids,
         }
+        if self.kv_cache_blocks:
+            res["accum_seq_len"] = torch.tensor(list(
+                itertools.accumulate(
+                    [t.shape[2] for t, _ in self.kv_cache_blocks])),
+                                                device="cpu",
+                                                dtype=torch.int64)
+            res["concat_kv_caches"] = torch.concat(
+                [t for t, _ in self.kv_cache_blocks], dim=2)
+            res["accum_num_blocks"] = torch.tensor(list(
+                itertools.accumulate([len(b)
+                                      for _, b in self.kv_cache_blocks])),
+                                                   device="cpu",
+                                                   dtype=torch.int64)
+            res["concat_block_ids"] = torch.tensor(list(
+                itertools.chain(*[b for _, b in self.kv_cache_blocks])),
+                                                   device="cpu",
+                                                   dtype=torch.int64)
+        return res
 
     @classmethod
     def from_tensor_dict(
             cls,
             tensor_dict: Dict[str,
                               torch.Tensor]) -> "WorkerInputBlockToSwapIn":
-        accum_seq_len = tensor_dict["accum_seq_len"].tolist()
-        kv_cache_tensors = []
-        for start, end in zip([0] + accum_seq_len[:-1], accum_seq_len):
-            kv_cache_tensors.append(
-                tensor_dict["concat_kv_caches"][:, :, start:end, :])
-        block_ids = []
-        accum_num_blocks = tensor_dict["accum_num_blocks"].tolist()
-        for start, end in zip([0] + accum_num_blocks[:-1], accum_num_blocks):
-            block_ids.append(
-                tensor_dict["concat_block_ids"][start:end].tolist())
-        kv_cache_blocks = []
-        for kv_cache, blocks in zip(kv_cache_tensors, block_ids):
-            kv_cache_blocks.append((kv_cache, blocks))
-        return WorkerInputBlockToSwapIn(cpu_blocks=tensor_dict["cpu_blocks"],
-                                        kv_cache_blocks=kv_cache_blocks)
+        res = WorkerInputBlockToSwapIn(cpu_blocks=tensor_dict["cpu_blocks"],
+                                       kv_cache_blocks=[])
+        if "concat_kv_caches" in tensor_dict:
+            accum_seq_len = tensor_dict["accum_seq_len"].tolist()
+            kv_cache_tensors = []
+            for start, end in zip([0] + accum_seq_len[:-1], accum_seq_len):
+                kv_cache_tensors.append(
+                    tensor_dict["concat_kv_caches"][:, :, start:end, :])
+            block_ids = []
+            accum_num_blocks = tensor_dict["accum_num_blocks"].tolist()
+            for start, end in zip([0] + accum_num_blocks[:-1],
+                                  accum_num_blocks):
+                block_ids.append(
+                    tensor_dict["concat_block_ids"][start:end].tolist())
+            kv_cache_blocks = []
+            for kv_cache, blocks in zip(kv_cache_tensors, block_ids):
+                kv_cache_blocks.append((kv_cache, blocks))
+            res.kv_cache_blocks = kv_cache_blocks
+        return res
 
 
 class BlocksToSwapIn:
