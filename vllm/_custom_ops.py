@@ -445,19 +445,18 @@ def swap_blocks(src: torch.Tensor, dst: torch.Tensor,
 
 def swap_in_kv_cache(
     dst_kv_cache: torch.Tensor,
-    kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]],
+    kv_cache_blocks: Tuple[torch.Tensor, List[int]],
 ) -> None:
     block_size = dst_kv_cache.size(2)
-    for kv_cache, block_ids in kv_cache_blocks:
-        seq_len = kv_cache.size(1)
-        start_idx = 0
-        kv_cache_cuda = kv_cache.to(dst_kv_cache.device)
-        for idx in block_ids:
-            length = min(block_size, seq_len - start_idx)
-            dst_kv_cache[:, idx, :length, :, :].copy_(
-                kv_cache_cuda[:, start_idx:start_idx + length, :, :],
-                non_blocking=True)
-            start_idx += length
+    kv_cache, block_ids = kv_cache_blocks
+    seq_len = kv_cache.size(1)
+    start_idx = 0
+    for idx in block_ids:
+        length = min(block_size, seq_len - start_idx)
+        dst_kv_cache[:, idx, :length, :, :].copy_(
+            kv_cache[:, start_idx:start_idx + length, :, :],
+            non_blocking=True)
+        start_idx += length
 
 
 def convert_fp8(output: torch.Tensor,

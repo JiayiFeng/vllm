@@ -96,13 +96,12 @@ class CacheEngine:
                                               self.gpu_cache[i],
                                               blocks.cpu_blocks)
         if blocks.kv_cache_blocks:
-            for i in range(self.num_attention_layers):
-                layer_kv_cache_blocks = [
-                    (kv_cache[:, i, :, :, :], blocks)
-                    for kv_cache, blocks in blocks.kv_cache_blocks
-                ]
-                self.attn_backend.swap_in_kv_cache(self.gpu_cache[i],
-                                                   layer_kv_cache_blocks)
+            for kv_cache_blocks in blocks.kv_cache_blocks:
+                cuda_kv_cache_blocks = (kv_cache_blocks[0].to(self.gpu_cache[0].device), kv_cache_blocks[1])
+                for i in range(self.num_attention_layers):
+                    layer_cuda_kv_cache_blocks = (cuda_kv_cache_blocks[0][:, i, :, :, :], cuda_kv_cache_blocks[1])
+                    self.attn_backend.swap_in_kv_cache(self.gpu_cache[i],
+                                                       layer_cuda_kv_cache_blocks)
 
     def swap_out(self, src_to_dst: torch.Tensor) -> None:
         for i in range(self.num_attention_layers):

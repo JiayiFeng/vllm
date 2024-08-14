@@ -69,7 +69,7 @@ class FlashAttentionBackend(AttentionBackend):
     @staticmethod
     def swap_in_kv_cache(
         dst_kv_cache: torch.Tensor,
-        kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]],
+        kv_cache_blocks: Tuple[torch.Tensor, List[int]],
     ) -> None:
         ops.swap_in_kv_cache(dst_kv_cache, kv_cache_blocks)
 
