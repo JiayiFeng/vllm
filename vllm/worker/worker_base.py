@@ -140,7 +140,8 @@ class WorkerInput:
         """
         return cls(
             num_seq_groups=tensor_dict.pop("num_seq_groups"),
-            blocks_to_swap_in=tensor_dict.pop("blocks_to_swap_in"),
+            blocks_to_swap_in=WorkerInputBlockToSwapIn.from_tensor_dict(
+                tensor_dict.pop("blocks_to_swap_in")),
             blocks_to_swap_out=tensor_dict.pop("blocks_to_swap_out"),
             blocks_to_copy=tensor_dict.pop("blocks_to_copy"),
             virtual_engine=tensor_dict["virtual_engine"],
@@ -152,11 +153,17 @@ class WorkerInput:
         Extract broadcastable fields.
         """
         tensor_dict = {
-            "num_seq_groups": self.num_seq_groups,
-            "blocks_to_swap_in": self.blocks_to_swap_in,
-            "blocks_to_swap_out": self.blocks_to_swap_out,
-            "blocks_to_copy": self.blocks_to_copy,
-            "virtual_engine": self.virtual_engine,
+            "num_seq_groups":
+            self.num_seq_groups,
+            "blocks_to_swap_in":
+            self.blocks_to_swap_in.to_tensor_dict()
+            if self.blocks_to_swap_in is not None else None,
+            "blocks_to_swap_out":
+            self.blocks_to_swap_out,
+            "blocks_to_copy":
+            self.blocks_to_copy,
+            "virtual_engine":
+            self.virtual_engine,
         }
 
         return tensor_dict
