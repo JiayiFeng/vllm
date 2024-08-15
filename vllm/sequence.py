@@ -262,7 +262,6 @@ class Sequence:
             output_token = [inputs["prompt_token_ids"][-1]]
             seq_data_input["prompt_token_ids"] = inputs[
                 "prompt_token_ids"][:-1]
-            seq_data_input["kv_cache"] = inputs["kv_cache"][:, :, :-1, :, :]
         self.seq_id = seq_id
         self.inputs = seq_data_input
         self.block_size = block_size
