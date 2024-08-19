@@ -341,6 +341,10 @@ class BlockSpaceManagerV2(BlockSpaceManager):
         Returns:
             AllocStatus: The AllocStatus for the given sequence group.
         """
+        if seq_group.input_is_kv_cache():
+            raise NotImplementedError(
+                "can_swap_in for seq_group with kv_cache input "
+                "is not supported by block_manager_v2")
         return self._can_swap(seq_group, Device.GPU, SequenceStatus.SWAPPED,
                               num_lookahead_slots)
 
