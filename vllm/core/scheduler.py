@@ -1,10 +1,13 @@
 import enum
+import itertools
 import os
 import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
+
+import torch
 
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
@@ -100,6 +103,108 @@ class SchedulingBudget:
 
 
 @dataclass
+class WorkerInputBlockToSwapIn:
+    cpu_blocks: torch.Tensor
+    # kv_cache tensor shape:
+    # [2(k/v), num_layers, seq_len, num_heads, head_size]
+    kv_cache_blocks: List[Tuple[torch.Tensor, List[int]]]
+
+    def tp_split(self, rank: int,
+                 word_size: int) -> "WorkerInputBlockToSwapIn":
+        if not self.kv_cache_blocks:
+            tp_kv_cache = []
+        else:
+            num_tp_heads = self.kv_cache_blocks[0][0].size(3) // word_size
+            start, end = rank * num_tp_heads, (rank + 1) * num_tp_heads
+            tp_kv_cache = [(kv_cache[:, :, :, start:end, :], blocks)
+                           for kv_cache, blocks in self.kv_cache_blocks]
+        return WorkerInputBlockToSwapIn(cpu_blocks=self.cpu_blocks,
+                                        kv_cache_blocks=tp_kv_cache)
+
+    def __bool__(self):
+        return self.cpu_blocks.numel() > 0 or len(self.kv_cache_blocks) > 0
+
+    def to_tensor_dict(self) -> Dict[str, torch.Tensor]:
+        res = {
+            "cpu_blocks": self.cpu_blocks,
+        }
+        if self.kv_cache_blocks:
+            res["accum_seq_len"] = torch.tensor(list(
+                itertools.accumulate(
+                    [t.shape[2] for t, _ in self.kv_cache_blocks])),
+                                                device="cpu",
+                                                dtype=torch.int64)
+            res["concat_kv_caches"] = torch.concat(
+                [t for t, _ in self.kv_cache_blocks], dim=2)
+            res["accum_num_blocks"] = torch.tensor(list(
+                itertools.accumulate([len(b)
+                                      for _, b in self.kv_cache_blocks])),
+                                                   device="cpu",
+                                                   dtype=torch.int64)
+            res["concat_block_ids"] = torch.tensor(list(
+                itertools.chain(*[b for _, b in self.kv_cache_blocks])),
+                                                   device="cpu",
+                                                   dtype=torch.int64)
+        return res
+
+    @classmethod
+    def from_tensor_dict(
+            cls,
+            tensor_dict: Dict[str,
+                              torch.Tensor]) -> "WorkerInputBlockToSwapIn":
+        res = WorkerInputBlockToSwapIn(cpu_blocks=tensor_dict["cpu_blocks"],
+                                       kv_cache_blocks=[])
+        if "concat_kv_caches" in tensor_dict:
+            accum_seq_len = tensor_dict["accum_seq_len"].tolist()
+            kv_cache_tensors = []
+            for start, end in zip([0] + accum_seq_len[:-1], accum_seq_len):
+                kv_cache_tensors.append(
+                    tensor_dict["concat_kv_caches"][:, :, start:end, :])
+            block_ids = []
+            accum_num_blocks = tensor_dict["accum_num_blocks"].tolist()
+            for start, end in zip([0] + accum_num_blocks[:-1],
+                                  accum_num_blocks):
+                block_ids.append(
+                    tensor_dict["concat_block_ids"][start:end].tolist())
+            kv_cache_blocks = []
+            for kv_cache, blocks in zip(kv_cache_tensors, block_ids):
+                kv_cache_blocks.append((kv_cache, blocks))
+            res.kv_cache_blocks = kv_cache_blocks
+        return res
+
+
+class BlocksToSwapIn:
+
+    def __init__(self):
+        self._cpu_blocks: List[Tuple[int, int]] = []
+        self._kv_cache_blocks: List[Tuple["torch.Tensor", List[int]]] = []
+
+    def append(self, blocks: Union[List[Tuple[int, int]], Tuple["torch.Tensor",
+                                                                List[int]]]):
+        if isinstance(blocks, tuple):
+            self._kv_cache_blocks.append(blocks)
+        else:
+            self._cpu_blocks.extend(blocks)
+
+    def copy(self):
+        res = BlocksToSwapIn()
+        res._cpu_blocks = self._cpu_blocks.copy()
+        res._kv_cache_blocks = [(tensor.clone(), blocks.copy())
+                                for tensor, blocks in self._kv_cache_blocks]
+        return res
+
+    def __bool__(self):
+        return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
+
+    def to_tensors(self):
+        cpu_blocks_tensor = torch.tensor(self._cpu_blocks,
+                                         device="cpu",
+                                         dtype=torch.int64).view(-1, 2)
+        return WorkerInputBlockToSwapIn(cpu_blocks=cpu_blocks_tensor,
+                                        kv_cache_blocks=self._kv_cache_blocks)
+
+
+@dataclass
 class ScheduledSequenceGroup:
     # A sequence group that's scheduled.
     seq_group: SequenceGroup
@@ -119,7 +224,7 @@ class SchedulerOutputs:
     # Total number of batched tokens.
     num_batched_tokens: int
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: List[Tuple[int, int]]
+    blocks_to_swap_in: BlocksToSwapIn
     # Blocks to swap out. List of GPU -> CPU block number.
     blocks_to_swap_out: List[Tuple[int, int]]
     # Blocks to copy. Source to dest block.
@@ -218,7 +323,7 @@ class SchedulerSwappedInOutputs:
     # phase. I.e., it means the prefill has been chunked.
     prefill_seq_groups: List[SequenceGroup]
     # The blocks to swap in.
-    blocks_to_swap_in: List[Tuple[int, int]]
+    blocks_to_swap_in: BlocksToSwapIn
     # The blocks to copy.
     blocks_to_copy: List[Tuple[int, int]]
     # The number of slots for lookahead decoding.
@@ -231,7 +336,7 @@ class SchedulerSwappedInOutputs:
         return SchedulerSwappedInOutputs(
             decode_seq_groups=[],
             prefill_seq_groups=[],
-            blocks_to_swap_in=[],
+            blocks_to_swap_in=BlocksToSwapIn(),
             blocks_to_copy=[],
             num_lookahead_slots=0,
             infeasible_seq_groups=[],
@@ -342,7 +447,11 @@ class Scheduler:
 
     def add_seq_group(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the waiting queue.
-        self.waiting.append(seq_group)
+        if seq_group.get_seqs()[0].status == SequenceStatus.SWAPPED:
+            self.swapped.append(seq_group)
+        else:
+            assert seq_group.is_prefill()
+            self.waiting.append(seq_group)
 
     def abort_seq_group(self, request_id: Union[str, Iterable[str]]) -> None:
         """Aborts a sequence group with the given ID.
@@ -543,7 +652,7 @@ class Scheduler:
             SchedulerSwappedInOutputs.
         """
         # Blocks that need to be swapped or copied before model execution.
-        blocks_to_swap_in: List[Tuple[int, int]] = []
+        blocks_to_swap_in = BlocksToSwapIn()
         blocks_to_copy: List[Tuple[int, int]] = []
         decode_seq_groups: List[ScheduledSequenceGroup] = []
         prefill_seq_groups: List[ScheduledSequenceGroup] = []
@@ -1160,10 +1269,10 @@ class Scheduler:
     def _swap_in(
         self,
         seq_group: SequenceGroup,
-        blocks_to_swap_in: List[Tuple[int, int]],
+        blocks_to_swap_in: BlocksToSwapIn,
     ) -> None:
         mapping = self.block_manager.swap_in(seq_group)
-        blocks_to_swap_in.extend(mapping)
+        blocks_to_swap_in.append(mapping)
         for seq in seq_group.get_seqs(status=SequenceStatus.SWAPPED):
             seq.status = SequenceStatus.RUNNING
 

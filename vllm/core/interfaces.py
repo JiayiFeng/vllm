@@ -1,10 +1,13 @@
 import enum
 from abc import ABC, abstractmethod
-from typing import List
+from typing import TYPE_CHECKING, List
 from typing import Sequence as GenericSequence
-from typing import Tuple
+from typing import Tuple, Union
 
 from vllm.sequence import Sequence, SequenceGroup
+
+if TYPE_CHECKING:
+    import torch
 
 
 class AllocStatus(enum.Enum):
@@ -73,7 +76,9 @@ class BlockSpaceManager(ABC):
         pass
 
     @abstractmethod
-    def swap_in(self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+    def swap_in(
+        self, seq_group: SequenceGroup
+    ) -> Union[List[Tuple[int, int]], Tuple["torch.Tensor", List[int]]]:
         pass
 
     @abstractmethod

@@ -5,6 +5,7 @@ import torch
 
 from vllm.attention import get_attn_backend
 from vllm.config import CacheConfig, DeviceConfig, ModelConfig, ParallelConfig
+from vllm.core.scheduler import WorkerInputBlockToSwapIn
 from vllm.logger import init_logger
 from vllm.utils import (STR_DTYPE_TO_TORCH_DTYPE, get_dtype_size,
                         is_pin_memory_available)
@@ -88,10 +89,20 @@ class CacheEngine:
                             device=device))
         return kv_cache
 
-    def swap_in(self, src_to_dst: torch.Tensor) -> None:
-        for i in range(self.num_attention_layers):
-            self.attn_backend.swap_blocks(self.cpu_cache[i], self.gpu_cache[i],
-                                          src_to_dst)
+    def swap_in(self, blocks: WorkerInputBlockToSwapIn) -> None:
+        if blocks.cpu_blocks.numel() > 0:
+            for i in range(self.num_attention_layers):
+                self.attn_backend.swap_blocks(self.cpu_cache[i],
+                                              self.gpu_cache[i],
+                                              blocks.cpu_blocks)
+        if blocks.kv_cache_blocks:
+            for i in range(self.num_attention_layers):
+                layer_kv_cache_blocks = [
+                    (kv_cache[:, i, :, :, :], blocks)
+                    for kv_cache, blocks in blocks.kv_cache_blocks
+                ]
+                self.attn_backend.swap_in_kv_cache(self.gpu_cache[i],
+                                                   layer_kv_cache_blocks)
 
     def swap_out(self, src_to_dst: torch.Tensor) -> None:
         for i in range(self.num_attention_layers):

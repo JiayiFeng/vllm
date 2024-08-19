@@ -5,6 +5,7 @@ from typing_extensions import NotRequired
 
 if TYPE_CHECKING:
     from vllm.multimodal import MultiModalDataDict
+    import torch
 
 
 class ParsedText(TypedDict):
@@ -92,7 +93,24 @@ class TokensPrompt(TypedDict):
     """
 
 
-PromptInputs = Union[str, TextPrompt, TokensPrompt]
+class PrefillKVCachePrompt(TypedDict):
+    prompt: str
+    """The input text to be tokenized before passing to the model."""
+    prompt_token_ids: List[int]
+    """A list of token IDs to pass to the model."""
+    multi_modal_data: NotRequired["MultiModalDataDict"]
+    """
+    Optional multi-modal data to pass to the model,
+    if the model supports it.
+    """
+    kv_cache: "torch.Tensor"
+    """
+    The prefill key-value cache to pass to the model, if available.
+    """
+
+
+PromptInputs = Union[str, TextPrompt, TokensPrompt, PrefillKVCachePrompt]
+
 """
 The inputs to the LLM, which can take one of the following forms:
 
@@ -118,4 +136,9 @@ class LLMInputs(TypedDict):
     """
     Optional multi-modal data to pass to the model,
     if the model supports it.
+    """
+
+    kv_cache: NotRequired[Optional["torch.Tensor"]]
+    """
+    The prefill key-value cache to pass to the model, if available.
     """

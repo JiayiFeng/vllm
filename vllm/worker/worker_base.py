@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
 import torch
 
+from vllm.core.scheduler import WorkerInputBlockToSwapIn
 from vllm.distributed import broadcast_tensor_dict, get_pp_group
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
@@ -123,7 +124,7 @@ class WorkerInput:
     """
 
     num_seq_groups: Optional[int] = None
-    blocks_to_swap_in: Optional[torch.Tensor] = None
+    blocks_to_swap_in: Optional[WorkerInputBlockToSwapIn] = None
     blocks_to_swap_out: Optional[torch.Tensor] = None
     blocks_to_copy: Optional[torch.Tensor] = None
     virtual_engine: int = 0
@@ -139,7 +140,8 @@ class WorkerInput:
         """
         return cls(
             num_seq_groups=tensor_dict.pop("num_seq_groups"),
-            blocks_to_swap_in=tensor_dict.pop("blocks_to_swap_in"),
+            blocks_to_swap_in=WorkerInputBlockToSwapIn.from_tensor_dict(
+                tensor_dict.pop("blocks_to_swap_in")),
             blocks_to_swap_out=tensor_dict.pop("blocks_to_swap_out"),
             blocks_to_copy=tensor_dict.pop("blocks_to_copy"),
             virtual_engine=tensor_dict["virtual_engine"],
@@ -151,11 +153,17 @@ class WorkerInput:
         Extract broadcastable fields.
         """
         tensor_dict = {
-            "num_seq_groups": self.num_seq_groups,
-            "blocks_to_swap_in": self.blocks_to_swap_in,
-            "blocks_to_swap_out": self.blocks_to_swap_out,
-            "blocks_to_copy": self.blocks_to_copy,
-            "virtual_engine": self.virtual_engine,
+            "num_seq_groups":
+            self.num_seq_groups,
+            "blocks_to_swap_in":
+            self.blocks_to_swap_in.to_tensor_dict()
+            if self.blocks_to_swap_in is not None else None,
+            "blocks_to_swap_out":
+            self.blocks_to_swap_out,
+            "blocks_to_copy":
+            self.blocks_to_copy,
+            "virtual_engine":
+            self.virtual_engine,
         }
 
         return tensor_dict
@@ -257,7 +265,6 @@ class LocalOrDistributedWorkerBase(WorkerBase):
             model_input = (
                 self.model_runner.
                 make_model_input_from_broadcasted_tensor_dict(broadcast_data))
-
         self.execute_worker(worker_input)
 
         # If there is no input, we don't need to execute the model.

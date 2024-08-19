@@ -253,9 +253,7 @@ class Worker(LocalOrDistributedWorkerBase):
         num_seq_groups = len(execute_model_req.seq_group_metadata_list)
         # `blocks_to_swap_in` and `blocks_to_swap_out` are cpu tensors.
         # they contain parameters to launch cudamemcpyasync.
-        blocks_to_swap_in = torch.tensor(execute_model_req.blocks_to_swap_in,
-                                         device="cpu",
-                                         dtype=torch.int64).view(-1, 2)
+        blocks_to_swap_in = execute_model_req.blocks_to_swap_in.to_tensors()
         blocks_to_swap_out = torch.tensor(execute_model_req.blocks_to_swap_out,
                                           device="cpu",
                                           dtype=torch.int64).view(-1, 2)
@@ -276,12 +274,20 @@ class Worker(LocalOrDistributedWorkerBase):
 
     @torch.inference_mode()
     def execute_worker(self, worker_input: WorkerInput) -> None:
+        if (self.parallel_config.pipeline_parallel_size > 1
+                and worker_input.blocks_to_swap_in
+                and len(worker_input.blocks_to_swap_in.kv_cache_blocks) > 0):
+            raise NotImplementedError(
+                "kv cache as input is not supported in pipeline parallelism")
+        blocks_to_swap_in = None if (
+            worker_input.blocks_to_swap_in is None
+        ) else worker_input.blocks_to_swap_in.tp_split(
+            rank=self.rank,
+            word_size=self.parallel_config.tensor_parallel_size)
         virtual_engine = worker_input.virtual_engine
         # Issue cache operations.
-        if (worker_input.blocks_to_swap_in is not None
-                and worker_input.blocks_to_swap_in.numel() > 0):
-            self.cache_engine[virtual_engine].swap_in(
-                worker_input.blocks_to_swap_in)
+        if blocks_to_swap_in:
+            self.cache_engine[virtual_engine].swap_in(blocks_to_swap_in)
         if (worker_input.blocks_to_swap_out is not None
                 and worker_input.blocks_to_swap_out.numel() > 0):
             self.cache_engine[virtual_engine].swap_out(
