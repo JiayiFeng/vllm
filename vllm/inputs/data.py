@@ -1,3 +1,5 @@
+import dataclasses
+from abc import ABC, abstractmethod
 from typing import (TYPE_CHECKING, List, Literal, Optional, Sequence,
                     TypedDict, Union, cast, overload)
 
@@ -5,6 +7,7 @@ from typing_extensions import NotRequired
 
 if TYPE_CHECKING:
     from vllm.multimodal import MultiModalDataDict
+    import torch
 
 
 class ParsedText(TypedDict):
@@ -31,7 +34,7 @@ def parse_and_batch_prompt(
 
 
 def parse_and_batch_prompt(
-    prompt: Union[str, List[str], List[int], List[List[int]]],
+        prompt: Union[str, List[str], List[int], List[List[int]]],
 ) -> Union[Sequence[ParsedText], Sequence[ParsedTokens]]:
     if isinstance(prompt, str):
         # case 1: a string
@@ -92,7 +95,42 @@ class TokensPrompt(TypedDict):
     """
 
 
-PromptInputs = Union[str, TextPrompt, TokensPrompt]
+@dataclasses.dataclass
+class DistInfo:
+    tp_size: int
+    tp_rank: int
+
+
+class KVCacheBlob(ABC):
+    @abstractmethod
+    def blocks(self, dist_info: DistInfo, block_size: int) -> List["torch.Tensor"]:
+        pass
+
+
+class PrefillKVCacheLoader(ABC):
+    @abstractmethod
+    def load(self) -> KVCacheBlob:
+        pass
+
+    @abstractmethod
+    def close(self):
+        pass
+
+
+class PrefillKVCachePrompt(TypedDict):
+    prompt_token_ids: List[int]
+    """A list of token IDs to pass to the model."""
+
+    multi_modal_data: NotRequired["MultiModalDataDict"]
+    """
+    Optional multi-modal data to pass to the model,
+    if the model supports it.
+    """
+
+    kv_cache_loader: PrefillKVCacheLoader
+
+
+PromptInputs = Union[str, TextPrompt, TokensPrompt, PrefillKVCachePrompt]
 """
 The inputs to the LLM, which can take one of the following forms:
 
@@ -119,3 +157,5 @@ class LLMInputs(TypedDict):
     Optional multi-modal data to pass to the model,
     if the model supports it.
     """
+
+    kv_cache_loader: NotRequired[Optional[PrefillKVCacheLoader]]
