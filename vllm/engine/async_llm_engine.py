@@ -279,6 +279,10 @@ class _AsyncLLMEngine(LLMEngine):
         lora_request: Optional[LoRARequest] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
     ) -> LLMInputs:
+        if "kv_cache_loader" in inputs:
+            return LLMInputs(prompt_token_ids=inputs["prompt_token_ids"],
+                             multi_modal_data=inputs.get("multi_modal_data"),
+                             kv_cache_loader=inputs["kv_cache_loader"])
         if isinstance(inputs, str):
             inputs = {"prompt": inputs}
 

@@ -5,12 +5,13 @@ from itertools import count, takewhile
 from os.path import commonprefix
 from typing import Dict, List, Optional
 from typing import Sequence as GenericSequence
-from typing import Set, Tuple
+from typing import Set, Tuple, Union
 
 from vllm.block import BlockTable, PhysicalTokenBlock
 from vllm.core.block.utils import check_no_caching_or_swa_for_blockmgr_encdec
 from vllm.core.evictor_v1 import EvictionPolicy, Evictor, make_evictor
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
+from vllm.inputs.data import PrefillKVCacheLoader
 from vllm.logger import init_logger
 from vllm.sequence import Sequence, SequenceGroup, SequenceStatus
 from vllm.utils import Device
@@ -505,16 +506,20 @@ class BlockSpaceManagerV1(BlockSpaceManager):
                     num_lookahead_slots: int = 0) -> AllocStatus:
         assert (num_lookahead_slots == 0
                 ), "BlockSpaceManagerV1 does not support lookahead allocation"
-
-        blocks = self._get_physical_blocks(seq_group)
-        num_swapped_seqs = seq_group.num_seqs(status=SequenceStatus.SWAPPED)
-        if seq_group.is_encoder_decoder():
-            num_swapped_seqs += 1
+        if seq_group.input_is_kv_cache():
+            num_required_blocks = self._get_seq_num_required_blocks(
+                seq_group.get_seqs()[0])
+        else:
+            blocks = self._get_physical_blocks(seq_group)
+            num_swapped_seqs = seq_group.num_seqs(
+                status=SequenceStatus.SWAPPED)
+            if seq_group.is_encoder_decoder():
+                num_swapped_seqs += 1
+            # NOTE: Conservatively, we assume that every sequence will allocate
+            # at least one free block right after the swap-in.
+            # NOTE: This should match the logic in can_append_slot().
+            num_required_blocks = len(blocks) + num_swapped_seqs
         num_free_blocks = self.gpu_allocator.get_num_free_blocks()
-        # NOTE: Conservatively, we assume that every sequence will allocate
-        # at least one free block right after the swap-in.
-        # NOTE: This should match the logic in can_append_slot().
-        num_required_blocks = len(blocks) + num_swapped_seqs
         if self.gpu_allocator.get_num_total_blocks() < num_required_blocks:
             return AllocStatus.NEVER
         elif num_free_blocks - num_required_blocks >= self.watermark_blocks:
@@ -543,7 +548,11 @@ class BlockSpaceManagerV1(BlockSpaceManager):
 
         return new_block_table
 
-    def swap_in(self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+    def swap_in(
+        self, seq_group: SequenceGroup
+    ) -> Union[Tuple[PrefillKVCacheLoader, List[int]], List[Tuple[int, int]]]:
+        if seq_group.input_is_kv_cache():
+            return self._swap_in_prefill_kv_cache(seq_group)
 
         request_id = seq_group.request_id
 
@@ -566,6 +575,20 @@ class BlockSpaceManagerV1(BlockSpaceManager):
 
         return [(cpu_block.block_number, gpu_block.block_number)
                 for cpu_block, gpu_block in mapping.items()]
+
+    def _swap_in_prefill_kv_cache(
+            self, seq_group: SequenceGroup
+    ) -> Tuple[PrefillKVCacheLoader, List[int]]:
+        assert len(seq_group.get_seqs()) == 1
+        seq = seq_group.get_seqs()[0]
+        new_blocks = self._allocate_sequence(
+            seq=seq,
+            ref_count=1,
+            is_encoder_decoder=seq_group.is_encoder_decoder())
+        self.block_tables[seq.seq_id] = new_blocks
+        return seq.inputs["kv_cache_loader"], [
+            block.block_number for block in new_blocks
+        ]
 
     def can_swap_out(self, seq_group: SequenceGroup) -> bool:
         blocks = self._get_physical_blocks(seq_group)

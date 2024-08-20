@@ -17,6 +17,7 @@ from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import SamplingParams
 
 if TYPE_CHECKING:
+    from vllm.core.scheduler import BlocksToSwapIn
     from vllm.inputs import LLMInputs
     from vllm.multimodal import MultiModalDataDict
     from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
@@ -263,6 +264,12 @@ class Sequence:
             lora_request: Optional[LoRARequest] = None,
             prompt_adapter_request: Optional[PromptAdapterRequest] = None
     ) -> None:
+        input_is_kv_cache = inputs.get("kv_cache_loader", None) is not None
+        output_token = None
+        if input_is_kv_cache:
+            inputs = copy.copy(inputs)
+            output_token = [inputs["prompt_token_ids"][-1]]
+            inputs["prompt_token_ids"] = inputs["prompt_token_ids"][:-1]
         self.seq_id = seq_id
         self.inputs = inputs
         self.block_size = block_size
@@ -270,11 +277,18 @@ class Sequence:
         self.lora_request = lora_request
         self.prompt_adapter_request = prompt_adapter_request
 
-        self.data = SequenceData(self.prompt_token_ids)
+        self.data = SequenceData(prompt_token_ids=self.prompt_token_ids,
+                                 output_token_ids=output_token)
+        if input_is_kv_cache:
+            # prefill tokens have been computed.
+            self.data.update_num_computed_tokens(
+                num_new_computed_tokens=len(self.prompt_token_ids))
+            self.data._stage = SequenceStage.DECODE
         self.output_logprobs: SampleLogprobs = []
         self.output_text = ""
 
-        self.status = SequenceStatus.WAITING
+        self.status = SequenceStatus.WAITING if not input_is_kv_cache else \
+            SequenceStatus.SWAPPED
         self.stop_reason: Union[int, str, None] = None
 
         # Used for incremental detokenization
@@ -614,6 +628,9 @@ class SequenceGroup:
     def is_prefill(self) -> bool:
         # Every sequence should be in the same stage.
         return self.seqs[0].is_prefill()
+
+    def input_is_kv_cache(self) -> bool:
+        return self.seqs[0].inputs.get("kv_cache_loader", None) is not None
 
     def __repr__(self) -> str:
         return (f"SequenceGroup(request_id={self.request_id}, "
@@ -970,7 +987,7 @@ class ExecuteModelRequest:
     # The sequence group metadata list.
     seq_group_metadata_list: List[SequenceGroupMetadata]
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: List[Tuple[int, int]] = field(default_factory=list)
+    blocks_to_swap_in: "BlocksToSwapIn"
     # Blocks to swap out. List of GPU -> CPU block number.
     blocks_to_swap_out: List[Tuple[int, int]] = field(default_factory=list)
     # Blocks to copy. Source to dest block.

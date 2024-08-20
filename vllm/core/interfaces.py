@@ -2,8 +2,9 @@ import enum
 from abc import ABC, abstractmethod
 from typing import List
 from typing import Sequence as GenericSequence
-from typing import Tuple
+from typing import Tuple, Union
 
+from vllm.inputs.data import PrefillKVCacheLoader
 from vllm.sequence import Sequence, SequenceGroup
 
 
@@ -73,7 +74,9 @@ class BlockSpaceManager(ABC):
         pass
 
     @abstractmethod
-    def swap_in(self, seq_group: SequenceGroup) -> List[Tuple[int, int]]:
+    def swap_in(
+        self, seq_group: SequenceGroup
+    ) -> Union[Tuple[PrefillKVCacheLoader, List[int]], List[Tuple[int, int]]]:
         pass
 
     @abstractmethod

@@ -8,6 +8,7 @@ from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
+from vllm.inputs.data import PrefillKVCacheLoader
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.prompt_adapter.request import PromptAdapterRequest
@@ -98,6 +99,30 @@ class SchedulingBudget:
         return self._num_curr_seqs
 
 
+class BlocksToSwapIn:
+
+    def __init__(self,
+                 cpu_blocks: Optional[List[Tuple[int, int]]] = None,
+                 kv_cache_blocks: Optional[List[Tuple[PrefillKVCacheLoader,
+                                                      List[int]]]] = None):
+        self._cpu_blocks = cpu_blocks or []
+        self._kv_cache_blocks = kv_cache_blocks or []
+
+    def append(self, blocks: Union[List[Tuple[int, int]],
+                                   Tuple[PrefillKVCacheLoader, List[int]]]):
+        if isinstance(blocks, tuple):
+            self._kv_cache_blocks.append(blocks)
+        else:
+            self._cpu_blocks.extend(blocks)
+
+    def copy(self) -> "BlocksToSwapIn":
+        return BlocksToSwapIn(cpu_blocks=self._cpu_blocks.copy(),
+                              kv_cache_blocks=self._kv_cache_blocks.copy())
+
+    def __bool__(self) -> bool:
+        return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
+
+
 @dataclass
 class ScheduledSequenceGroup:
     # A sequence group that's scheduled.
@@ -118,7 +143,7 @@ class SchedulerOutputs:
     # Total number of batched tokens.
     num_batched_tokens: int
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: List[Tuple[int, int]]
+    blocks_to_swap_in: BlocksToSwapIn
     # Blocks to swap out. List of GPU -> CPU block number.
     blocks_to_swap_out: List[Tuple[int, int]]
     # Blocks to copy. Source to dest block.
@@ -217,7 +242,7 @@ class SchedulerSwappedInOutputs:
     # phase. I.e., it means the prefill has been chunked.
     prefill_seq_groups: List[SequenceGroup]
     # The blocks to swap in.
-    blocks_to_swap_in: List[Tuple[int, int]]
+    blocks_to_swap_in: BlocksToSwapIn
     # The blocks to copy.
     blocks_to_copy: List[Tuple[int, int]]
     # The number of slots for lookahead decoding.
@@ -230,7 +255,7 @@ class SchedulerSwappedInOutputs:
         return SchedulerSwappedInOutputs(
             decode_seq_groups=[],
             prefill_seq_groups=[],
-            blocks_to_swap_in=[],
+            blocks_to_swap_in=BlocksToSwapIn(),
             blocks_to_copy=[],
             num_lookahead_slots=0,
             infeasible_seq_groups=[],
@@ -342,7 +367,11 @@ class Scheduler:
 
     def add_seq_group(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the waiting queue.
-        self.waiting.append(seq_group)
+        if seq_group.get_seqs()[0].status == SequenceStatus.SWAPPED:
+            self.swapped.append(seq_group)
+        else:
+            assert seq_group.is_prefill()
+            self.waiting.append(seq_group)
 
     def _add_seq_group_to_running(self, seq_group: SequenceGroup) -> None:
         # Add sequence groups to the running queue.
@@ -541,7 +570,7 @@ class Scheduler:
             SchedulerSwappedInOutputs.
         """
         # Blocks that need to be swapped or copied before model execution.
-        blocks_to_swap_in: List[Tuple[int, int]] = []
+        blocks_to_swap_in = BlocksToSwapIn()
         blocks_to_copy: List[Tuple[int, int]] = []
         decode_seq_groups: List[ScheduledSequenceGroup] = []
         prefill_seq_groups: List[ScheduledSequenceGroup] = []
@@ -1134,10 +1163,10 @@ class Scheduler:
     def _swap_in(
         self,
         seq_group: SequenceGroup,
-        blocks_to_swap_in: List[Tuple[int, int]],
+        blocks_to_swap_in: BlocksToSwapIn,
     ) -> None:
         mapping = self.block_manager.swap_in(seq_group)
-        blocks_to_swap_in.extend(mapping)
+        blocks_to_swap_in.append(mapping)
         for seq in seq_group.get_seqs(status=SequenceStatus.SWAPPED):
             seq.status = SequenceStatus.RUNNING
 
