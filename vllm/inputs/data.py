@@ -101,15 +101,15 @@ class DistInfo:
     tp_rank: int
 
 
-class KVCacheBlob(ABC):
+class KVCacheBlobBase(ABC):
     @abstractmethod
-    def blocks(self, dist_info: DistInfo, block_size: int) -> List["torch.Tensor"]:
+    def blocks(self, dist_info: DistInfo, block_size: int) -> List[List["torch.Tensor"]]:
         pass
 
 
-class PrefillKVCacheLoader(ABC):
+class PrefillKVCacheLoaderBase(ABC):
     @abstractmethod
-    def load(self) -> KVCacheBlob:
+    def load(self) -> KVCacheBlobBase:
         pass
 
     @abstractmethod
@@ -127,7 +127,7 @@ class PrefillKVCachePrompt(TypedDict):
     if the model supports it.
     """
 
-    kv_cache_loader: PrefillKVCacheLoader
+    kv_cache_loader: PrefillKVCacheLoaderBase
 
 
 PromptInputs = Union[str, TextPrompt, TokensPrompt, PrefillKVCachePrompt]
@@ -158,4 +158,4 @@ class LLMInputs(TypedDict):
     if the model supports it.
     """
 
-    kv_cache_loader: NotRequired[Optional[PrefillKVCacheLoader]]
+    kv_cache_loader: NotRequired[Optional[PrefillKVCacheLoaderBase]]

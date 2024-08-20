@@ -6,9 +6,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
 
+import torch
+
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
-from vllm.inputs.data import PrefillKVCacheLoader
+from vllm.inputs.data import PrefillKVCacheLoaderBase
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.prompt_adapter.request import PromptAdapterRequest
@@ -99,17 +101,27 @@ class SchedulingBudget:
         return self._num_curr_seqs
 
 
+@dataclass
+class WorkerInputBlockToSwapIn:
+    cpu_blocks: torch.Tensor
+    kv_cache_blocks: List[Tuple[PrefillKVCacheLoaderBase, List[int]]]
+
+    def __bool__(self):
+        return self.cpu_blocks.numel() > 0 or len(self.kv_cache_blocks) > 0
+
+
 class BlocksToSwapIn:
 
     def __init__(self,
                  cpu_blocks: Optional[List[Tuple[int, int]]] = None,
-                 kv_cache_blocks: Optional[List[Tuple[PrefillKVCacheLoader,
+                 kv_cache_blocks: Optional[List[Tuple[PrefillKVCacheLoaderBase,
                                                       List[int]]]] = None):
         self._cpu_blocks = cpu_blocks or []
         self._kv_cache_blocks = kv_cache_blocks or []
 
     def append(self, blocks: Union[List[Tuple[int, int]],
-                                   Tuple[PrefillKVCacheLoader, List[int]]]):
+                                   Tuple[PrefillKVCacheLoaderBase,
+                                         List[int]]]):
         if isinstance(blocks, tuple):
             self._kv_cache_blocks.append(blocks)
         else:
@@ -121,6 +133,11 @@ class BlocksToSwapIn:
 
     def __bool__(self) -> bool:
         return len(self._cpu_blocks) > 0 or len(self._kv_cache_blocks) > 0
+
+    def to_worker_input(self) -> WorkerInputBlockToSwapIn:
+        return WorkerInputBlockToSwapIn(cpu_blocks=torch.tensor(
+            self._cpu_blocks, device="cpu", dtype=torch.int64).view(-1, 2),
+                                        kv_cache_blocks=self._kv_cache_blocks)
 
 
 @dataclass

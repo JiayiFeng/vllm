@@ -4,7 +4,7 @@ from typing import List
 from typing import Sequence as GenericSequence
 from typing import Tuple, Union
 
-from vllm.inputs.data import PrefillKVCacheLoader
+from vllm.inputs.data import PrefillKVCacheLoaderBase
 from vllm.sequence import Sequence, SequenceGroup
 
 
@@ -76,7 +76,8 @@ class BlockSpaceManager(ABC):
     @abstractmethod
     def swap_in(
         self, seq_group: SequenceGroup
-    ) -> Union[Tuple[PrefillKVCacheLoader, List[int]], List[Tuple[int, int]]]:
+    ) -> Union[Tuple[PrefillKVCacheLoaderBase, List[int]], List[Tuple[int,
+                                                                      int]]]:
         pass
 
     @abstractmethod

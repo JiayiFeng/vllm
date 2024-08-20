@@ -69,6 +69,14 @@ class AttentionBackend(ABC):
 
     @staticmethod
     @abstractmethod
+    def swap_in_kv_cache(
+        dst_kv_cache: torch.Tensor,
+        kv_cache_blocks: List[Tuple[torch.Tensor, int]],
+    ) -> None:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
     def copy_blocks(
         kv_caches: List[torch.Tensor],
         src_to_dists: torch.Tensor,

@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
 import torch
 
+from vllm.core.scheduler import WorkerInputBlockToSwapIn
 from vllm.distributed import broadcast_tensor_dict, get_pp_group, get_tp_group
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
@@ -123,7 +124,7 @@ class WorkerInput:
     """
 
     num_seq_groups: Optional[int] = None
-    blocks_to_swap_in: Optional[torch.Tensor] = None
+    blocks_to_swap_in: Optional[WorkerInputBlockToSwapIn] = None
     blocks_to_swap_out: Optional[torch.Tensor] = None
     blocks_to_copy: Optional[torch.Tensor] = None
     virtual_engine: int = 0
@@ -137,9 +138,19 @@ class WorkerInput:
         Pop fields from the given tensor_dict and populate a new instance of
         WorkerInput.
         """
+        cpu_blocks_to_swap_in = tensor_dict.pop("cpu_blocks_to_swap_in")
+        kv_cache_blocks_to_swap_in = tensor_dict.pop(
+            "kv_cache_blocks_to_swap_in")
+        if cpu_blocks_to_swap_in is None and kv_cache_blocks_to_swap_in is None:
+            blocks_to_swap_in = None
+        else:
+            blocks_to_swap_in = WorkerInputBlockToSwapIn(
+                cpu_blocks=cpu_blocks_to_swap_in,
+                kv_cache_blocks=kv_cache_blocks_to_swap_in,
+            )
         return cls(
             num_seq_groups=tensor_dict.pop("num_seq_groups"),
-            blocks_to_swap_in=tensor_dict.pop("blocks_to_swap_in"),
+            blocks_to_swap_in=blocks_to_swap_in,
             blocks_to_swap_out=tensor_dict.pop("blocks_to_swap_out"),
             blocks_to_copy=tensor_dict.pop("blocks_to_copy"),
             virtual_engine=tensor_dict["virtual_engine"],
@@ -151,11 +162,20 @@ class WorkerInput:
         Extract broadcastable fields.
         """
         tensor_dict = {
-            "num_seq_groups": self.num_seq_groups,
-            "blocks_to_swap_in": self.blocks_to_swap_in,
-            "blocks_to_swap_out": self.blocks_to_swap_out,
-            "blocks_to_copy": self.blocks_to_copy,
-            "virtual_engine": self.virtual_engine,
+            "num_seq_groups":
+            self.num_seq_groups,
+            "cpu_blocks_to_swap_in":
+            self.blocks_to_swap_in.cpu_blocks
+            if self.blocks_to_swap_in is not None else None,
+            "kv_cache_blocks_to_swap_in":
+            self.blocks_to_swap_in.kv_cache_blocks
+            if self.blocks_to_swap_in is not None else None,
+            "blocks_to_swap_out":
+            self.blocks_to_swap_out,
+            "blocks_to_copy":
+            self.blocks_to_copy,
+            "virtual_engine":
+            self.virtual_engine,
         }
 
         return tensor_dict
