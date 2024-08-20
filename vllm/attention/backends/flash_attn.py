@@ -67,6 +67,13 @@ class FlashAttentionBackend(AttentionBackend):
         ops.swap_blocks(src_value_cache, dst_value_cache, src_to_dst)
 
     @staticmethod
+    def swap_in_kv_cache(
+        dst_kv_cache: torch.Tensor,
+        kv_cache_blocks: List[Tuple[torch.Tensor, int]],
+    ) -> None:
+        ops.swap_in_kv_cache_blocks(dst_kv_cache, kv_cache_blocks)
+
+    @staticmethod
     def copy_blocks(
         kv_caches: List[torch.Tensor],
         src_to_dists: torch.Tensor,

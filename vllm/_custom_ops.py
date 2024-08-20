@@ -463,6 +463,16 @@ def swap_blocks(src: torch.Tensor, dst: torch.Tensor,
     torch.ops._C_cache_ops.swap_blocks(src, dst, block_mapping)
 
 
+def swap_in_kv_cache_blocks(
+    dst_kv_cache: torch.Tensor,
+    kv_cache_blocks: List[Tuple[torch.Tensor, int]],
+) -> None:
+    for tensor, block_id in kv_cache_blocks:
+        seq_len = tensor.shape[1]
+        dst_kv_cache[:, block_id, :seq_len, :, :].copy_(tensor,
+                                                        non_blocking=True)
+
+
 def convert_fp8(output: torch.Tensor,
                 input: torch.Tensor,
                 scale: float = 1.0,
