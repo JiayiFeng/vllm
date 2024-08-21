@@ -5,8 +5,8 @@ from typing import List
 import torch
 
 from vllm import EngineArgs, LLMEngine, RequestOutput, SamplingParams
-from vllm.inputs.data import (DistInfo, KVCacheBlobBase,
-                              PrefillKVCacheLoaderBase, PrefillKVCachePrompt)
+from vllm.inputs.data import (DistInfo, KVCacheBlobBase, PrefillKVCacheLoader,
+                              PrefillKVCachePrompt)
 from vllm.utils import FlexibleArgumentParser
 
 current_file_path = os.path.abspath(__file__)
@@ -42,7 +42,7 @@ class KVCacheBlob(KVCacheBlobBase):
         ]
 
 
-class PrefillKVCacheLoader(PrefillKVCacheLoaderBase):
+class PrefillKVCacheLoader(PrefillKVCacheLoader):
 
     def __init__(self, kv_cache: torch.Tensor):
         self.kv_cache = kv_cache

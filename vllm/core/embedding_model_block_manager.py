@@ -1,7 +1,7 @@
 from typing import List, Tuple, Union
 
 from vllm.core.interfaces import AllocStatus, BlockSpaceManager
-from vllm.inputs.data import PrefillKVCacheLoaderBase
+from vllm.inputs.data import PrefillKVCacheLoader
 from vllm.sequence import Sequence, SequenceGroup
 
 
@@ -49,8 +49,7 @@ class EmbeddingModelBlockSpaceManager(BlockSpaceManager):
 
     def swap_in(
         self, seq_group: SequenceGroup
-    ) -> Union[Tuple[PrefillKVCacheLoaderBase, List[int]], List[Tuple[int,
-                                                                      int]]]:
+    ) -> Union[Tuple[PrefillKVCacheLoader, List[int]], List[Tuple[int, int]]]:
         return None  # type: ignore
 
     def can_swap_out(self, seq_group: SequenceGroup) -> bool:
