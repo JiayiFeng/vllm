@@ -103,7 +103,7 @@ class DistInfo:
 
 class KVCacheBlobBase(ABC):
     @abstractmethod
-    def blocks(self, dist_info: DistInfo, block_size: int) -> List[List["torch.Tensor"]]:
+    def blocks(self, dist_info: DistInfo, block_shape: List[int], num_layers: int) -> List[List["torch.Tensor"]]:
         pass
 
 
