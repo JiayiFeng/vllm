@@ -6,7 +6,7 @@ import torch
 from vllm.attention import get_attn_backend
 from vllm.config import CacheConfig, DeviceConfig, ModelConfig, ParallelConfig
 from vllm.core.scheduler import WorkerInputBlockToSwapIn
-from vllm.inputs.data import DistInfo, KVCacheBlobBase
+from vllm.inputs.data import DistInfo, KVCacheBlob
 from vllm.logger import init_logger
 from vllm.utils import (STR_DTYPE_TO_TORCH_DTYPE, get_dtype_size,
                         is_pin_memory_available)
@@ -99,14 +99,12 @@ class CacheEngine:
         if src_to_dst.kv_cache_blocks:
             block_shape = self.gpu_cache[0][:, 0, :, :, :].shape
             for loader, block_ids in src_to_dst.kv_cache_blocks:
-                kv_cache_blob: KVCacheBlobBase = loader.load()
+                kv_cache_blob: KVCacheBlob = loader(
+                    DistInfo(tp_size=self.parallel_config.tensor_parallel_size,
+                             tp_rank=self.parallel_config.rank),
+                    list(block_shape), self.num_attention_layers)
                 try:
-                    block_tensors = kv_cache_blob.blocks(
-                        dist_info=DistInfo(
-                            tp_size=self.parallel_config.tensor_parallel_size,
-                            tp_rank=self.parallel_config.rank),
-                        block_shape=list(block_shape),
-                        num_layers=self.num_attention_layers)
+                    block_tensors = kv_cache_blob.blocks
                     for layer_id, layer_block_tensors in zip(
                             range(self.num_attention_layers), block_tensors):
                         self.attn_backend.swap_in_kv_cache(
@@ -114,9 +112,9 @@ class CacheEngine:
                             [(t, idx)
                              for t, idx in zip(layer_block_tensors, block_ids)
                              ])
+                    del block_tensors
                 finally:
-                    del kv_cache_blob
-                    loader.close()
+                    kv_cache_blob.close()
 
     def swap_out(self, src_to_dst: torch.Tensor) -> None:
         for i in range(self.num_attention_layers):

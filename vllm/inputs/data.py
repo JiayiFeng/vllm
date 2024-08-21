@@ -1,7 +1,7 @@
 import dataclasses
 from abc import ABC, abstractmethod
 from typing import (TYPE_CHECKING, List, Literal, Optional, Sequence,
-                    TypedDict, Union, cast, overload)
+                    TypedDict, Union, cast, overload, Callable, NamedTuple)
 
 from typing_extensions import NotRequired
 
@@ -101,20 +101,13 @@ class DistInfo:
     tp_rank: int
 
 
-class KVCacheBlobBase(ABC):
-    @abstractmethod
-    def blocks(self, dist_info: DistInfo, block_shape: List[int], num_layers: int) -> List[List["torch.Tensor"]]:
-        pass
+class KVCacheBlob(NamedTuple):
+    blocks: List[List["torch.Tensor"]]
+    close: Callable[[], None]
 
 
-class PrefillKVCacheLoaderBase(ABC):
-    @abstractmethod
-    def load(self) -> KVCacheBlobBase:
-        pass
-
-    @abstractmethod
-    def close(self):
-        pass
+# input param: dist_info, block_shape, num_layers
+PrefillKVCacheLoader = Callable[[DistInfo, List[int], int], KVCacheBlob]
 
 
 class PrefillKVCachePrompt(TypedDict):
@@ -127,7 +120,7 @@ class PrefillKVCachePrompt(TypedDict):
     if the model supports it.
     """
 
-    kv_cache_loader: PrefillKVCacheLoaderBase
+    kv_cache_loader: PrefillKVCacheLoader
 
 
 PromptInputs = Union[str, TextPrompt, TokensPrompt, PrefillKVCachePrompt]
@@ -158,4 +151,4 @@ class LLMInputs(TypedDict):
     if the model supports it.
     """
 
-    kv_cache_loader: NotRequired[Optional[PrefillKVCacheLoaderBase]]
+    kv_cache_loader: NotRequired[Optional[PrefillKVCacheLoader]]
