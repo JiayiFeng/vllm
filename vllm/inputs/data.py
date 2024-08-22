@@ -95,10 +95,13 @@ class TokensPrompt(TypedDict):
     """
 
 
-@dataclasses.dataclass
-class DistInfo:
+class KVCacheLoadTileArgs(NamedTuple):
     tp_size: int
     tp_rank: int
+    num_layers: int
+    block_size: int
+    num_heads: int
+    head_dim: int
 
 
 class KVCacheBlob(NamedTuple):
@@ -107,7 +110,7 @@ class KVCacheBlob(NamedTuple):
 
 
 # input param: dist_info, block_shape, num_layers
-PrefillKVCacheLoader = Callable[[DistInfo, List[int], int], KVCacheBlob]
+PrefillKVCacheLoader = Callable[[KVCacheLoadTileArgs], KVCacheBlob]
 
 
 class PrefillKVCachePrompt(TypedDict):
