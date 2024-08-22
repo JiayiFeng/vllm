@@ -6,7 +6,7 @@ import torch
 from vllm.attention import get_attn_backend
 from vllm.config import CacheConfig, DeviceConfig, ModelConfig, ParallelConfig
 from vllm.core.scheduler import WorkerInputBlockToSwapIn
-from vllm.inputs.data import DistInfo, KVCacheBlob
+from vllm.inputs.data import KVCacheBlob, KVCacheLoadTileArgs
 from vllm.logger import init_logger
 from vllm.utils import (STR_DTYPE_TO_TORCH_DTYPE, get_dtype_size,
                         is_pin_memory_available)
@@ -97,12 +97,15 @@ class CacheEngine:
                                               self.gpu_cache[i],
                                               src_to_dst.cpu_blocks)
         if src_to_dst.kv_cache_blocks:
-            block_shape = self.gpu_cache[0][:, 0, :, :, :].shape
             for loader, block_ids in src_to_dst.kv_cache_blocks:
                 kv_cache_blob: KVCacheBlob = loader(
-                    DistInfo(tp_size=self.parallel_config.tensor_parallel_size,
-                             tp_rank=self.parallel_config.rank),
-                    list(block_shape), self.num_attention_layers)
+                    KVCacheLoadTileArgs(
+                        tp_size=self.parallel_config.tensor_parallel_size,
+                        tp_rank=self.parallel_config.rank,
+                        num_layers=self.num_attention_layers,
+                        block_size=self.block_size,
+                        num_heads=self.model_config.get_total_num_kv_heads(),
+                        head_dim=self.head_size))
                 try:
                     block_tensors = kv_cache_blob.blocks
                     for layer_id, layer_block_tensors in zip(
