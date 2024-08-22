@@ -276,7 +276,7 @@ class Sequence:
         self.eos_token_id = eos_token_id
         self.lora_request = lora_request
         self.prompt_adapter_request = prompt_adapter_request
-
+        self.output_token_offset = 0
         self.data = SequenceData(prompt_token_ids=self.prompt_token_ids,
                                  output_token_ids=output_token)
         if input_is_kv_cache:
@@ -284,6 +284,7 @@ class Sequence:
             self.data.update_num_computed_tokens(
                 num_new_computed_tokens=len(self.prompt_token_ids))
             self.data._stage = SequenceStage.DECODE
+            self.output_token_offset = 1
         self.output_logprobs: SampleLogprobs = []
         self.output_text = ""
 
@@ -373,7 +374,7 @@ class Sequence:
         return self.data.get_last_token_id()
 
     def get_output_token_ids(self) -> Tuple[int, ...]:
-        return self.data.get_output_token_ids()
+        return self.data.get_output_token_ids()[self.output_token_offset:]
 
     def get_cumulative_logprob(self) -> float:
         return self.data.cumulative_logprob
