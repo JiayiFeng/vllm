@@ -712,7 +712,8 @@ class AsyncLLMEngine:
         request_id: str,
         lora_request: Optional[LoRARequest] = None,
         trace_headers: Optional[Mapping[str, str]] = None,
-        prompt_adapter_request: Optional[PromptAdapterRequest] = None
+        prompt_adapter_request: Optional[PromptAdapterRequest] = None,
+        on_complete: Optional[Callable] = None,
     ) -> AsyncIterator[RequestOutput]:
         """Generate outputs for a request.
 
